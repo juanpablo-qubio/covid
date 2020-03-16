@@ -6,6 +6,8 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from matplotlib.ticker import StrMethodFormatter, NullFormatter
 import shutil
+import pygal
+from pygal.style import DarkStyle
 
 class COVID(object):
     """
@@ -18,12 +20,14 @@ class COVID(object):
         """
         
 
-    def run(self):
-    
-        df = self.get_data()
+    def run(self, df=None, date=None):
+
+        if df is None and date is None:
+            df, date = self.get_data()
+
         countries = self.ask_for_countries(df)
         dfs, m_values = self.create_dfs(df, countries)
-        self.plot_data(dfs, m_values)
+        self.plot_data(dfs, m_values, date)
         
     
     def get_data(self):
@@ -54,7 +58,7 @@ class COVID(object):
                     df = pd.read_excel(open(data_file, 'rb'))
                     print("Got data for date:", date)
 
-                    return df
+                    return df, date
             else:
                 data_file = join(os.getcwd(), 'data', 'COVID_data.xls')
                 shutil.move(xls_file, data_file)
@@ -88,6 +92,7 @@ class COVID(object):
             i += 2
 
         countries = ['Spain', 'Italy', 'France', 'Iran']
+        # countries = ['Italy', 'Iran', 'Spain', 'France']
 
         return countries
         
@@ -139,19 +144,53 @@ class COVID(object):
             
         return dfs, m_values
 
-    def plot_data(self, dfs, m_values):
 
+    def create_gal_chart(self, dfs):
+        """
+        """
+        # chart = pygal.Line(fill=True, style=DarkStyle, legend_at_bottom=True)
+        chart = pygal.Bar(style=DarkStyle)
+        m_len = 0
+        for df in dfs:
+            c_len = len(df['NewConfCases'].values)
+            if c_len > m_len:
+                m_len = c_len
+
+        for df in dfs:
+            y_values = df['NewConfCases'].values
+            
+            c_fill = np.zeros(m_len - len(y_values), dtype=int)
+            y_values = np.concatenate((c_fill, y_values), axis=0)
+            country = df['CountryExp'].values[0]
+
+            chart.add(country, y_values)
+            
+            #chart = pygal.Line(logarithmic=True)
+            # chart.x_labels = map(str, y_values)
+        
+        chart.render_to_file(join(os.getcwd(), 'figures', 'hist_graph.svg'))
+    
+    def plot_data(self, dfs, m_values, date):
+        """
+        Plot cases vs days since first diagnosted case
+        """
+
+        # Constant increase model, trivial model, just for ilustrative purposes
         l_pct = []
         val = 0
-        for n in range(m_values):
-            val += (val + n)*0.33
+        
+        for d, n in enumerate(range(m_values)):
+            if d < 20:
+                val += (val + n)*0.33
+            else:
+                val += (val + n)*0.15
             l_pct.append(val)
 
         cols = 3
         rows = 1
 
         fig = plt.figure(1, figsize=(20, 5))
-
+        title = "Cases by country (%s) \n\n" % date
         max_cases = 0
         for i in range(cols):
 
@@ -166,7 +205,7 @@ class COVID(object):
 
             for j, df in enumerate(dfs):
 
-                # print("DF:", df.head())
+                # print("DF:", df)
 
                 y_values = df['NewConfCases'].values
                 x_values = np.arange(len(y_values))
@@ -174,21 +213,25 @@ class COVID(object):
                 cases = np.max(np.cumsum(y_values))
                 if cases > max_cases:
                     max_cases = cases
-            
+
+                alpha = 1 - (0.15 * j)
                 if i == 0:
-                    ax.plot(x_values, y_values, label=country) #, color="y")
+                    ax.bar(x_values, y_values, alpha=alpha, label=country)
                 elif i == 1:
                     ax.plot(x_values, np.cumsum(y_values), label=country) #, color="y")
+                    title += country + ": " + str(max(np.cumsum(y_values))) + "\n"
                 else:
                     if j == 0:
-                        ax.plot(range(m_values), np.cumsum(l_pct), '--', label="33% Increase", color="w")
+                        ax.plot(range(m_values), np.cumsum(l_pct), '--', label="FC% Increase", color="w")
 
                     ax.plot(x_values, np.cumsum(y_values), label=country) #, color="y")
-
+                    
                     
             legend = self.set_black_legend(ax)
-
+            
             ax.grid()
+            if i == 1:
+                ax.set_title(title, color="white")
             if i > 0:
                 ax.set_ylim(1, max_cases)
             if i == 2:
@@ -196,12 +239,19 @@ class COVID(object):
                 ax.yaxis.set_major_formatter(StrMethodFormatter('{x:.0f}'))
                 ax.yaxis.set_minor_formatter(NullFormatter())
 
+
+        # Create interactive plots
+        self.create_gal_chart(dfs)
+
         # plt.show()
-        fig_name = join(os.getcwd(), 'COVID_graphs.png')
+        fig_name = join(os.getcwd(), 'figures', 'COVID_graphs.png')
         fig.savefig(fig_name, bbox_inches='tight', facecolor='k', edgecolor='k')
         print("Created figure:", fig_name)           
 
 
 if __name__ == "__main__":
     worker = COVID()
-    worker.run()
+    df = pd.read_excel(open(join(os.getcwd(), 'data', 'COVID_data.xls'), 'rb'))
+
+    worker.run(df=df, date="2020-03-15")
+    # worker.run()
