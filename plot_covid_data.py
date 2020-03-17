@@ -1,5 +1,5 @@
 import os
-from os.path import join, exists
+from os.path import join, exists, splitext
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -8,6 +8,7 @@ from matplotlib.ticker import StrMethodFormatter, NullFormatter
 import shutil
 import pygal
 from pygal.style import DarkStyle
+
 
 class COVID(object):
     """
@@ -18,7 +19,6 @@ class COVID(object):
         """
         Class initializer
         """
-        
 
     def run(self, df=None, date=None):
 
@@ -28,9 +28,12 @@ class COVID(object):
         countries = self.ask_for_countries(df)
         dfs, m_values = self.create_dfs(df, countries)
         self.plot_data(dfs, m_values, date)
-        
-    
+        self.create_webpage()
+
     def get_data(self):
+        """
+        Retrive updated data from ECDC web page
+        """
 
         date = datetime.today().strftime('%Y-%m-%d')
 
@@ -42,15 +45,15 @@ class COVID(object):
 
             xls_file = 'COVID-19-geographic-disbtribution-worldwide-%s.xls' % date
             xls_file = join(os.getcwd(), xls_file)
-            
+
             if not exists(xls_file):
 
                 pday = "-" + str(day-1)
                 date = date.replace("-" + str(day), pday)
-                
+
                 get_xls = "wget -q https://www.ecdc.europa.eu/sites/default/files/documents/COVID-19-geographic-disbtribution-worldwide-%s.xls" % date
                 os.system(get_xls)
-                
+
                 xls_file = 'COVID-19-geographic-disbtribution-worldwide-%s.xls' % date
                 if exists(xls_file):
                     data_file = join(os.getcwd(), 'data', 'COVID_data.xls')
@@ -66,12 +69,14 @@ class COVID(object):
                 print("Got data for date:", date)
 
                 return df
-                
+
         except Exception as err:
             print("Error:", err)
-            
 
     def ask_for_countries(self, df):
+        """
+        Select countries to display data for
+        """
 
         # Arrange df for countries selections
         
@@ -91,13 +96,11 @@ class COVID(object):
                 break
             i += 2
 
-        countries = ['Spain', 'Italy', 'France', 'Iran']
+        countries = ['Spain', 'Italy', 'Germany', 'France', 'Iran']
         # countries = ['Italy', 'Iran', 'Spain', 'France']
 
         return countries
-        
 
-        
     def set_black_axis(self, axis):
         """
         Configure axis as white over black
@@ -117,6 +120,9 @@ class COVID(object):
         return axis
 
     def set_black_legend(self, ax):
+        """
+        Set plot legend background color as black
+        """
         
         legend = ax.legend(frameon = 1)
         frame = legend.get_frame()
@@ -144,7 +150,6 @@ class COVID(object):
             
         return dfs, m_values
 
-
     def create_gal_chart(self, dfs):
         """
         """
@@ -170,6 +175,66 @@ class COVID(object):
         
         chart.render_to_file(join(os.getcwd(), 'figures', 'hist_graph.svg'))
     
+    def create_webpage(self):
+        """
+        Write html code to show graphs
+        """
+
+        web_page = join(os.getcwd(), 'html', 'covid_graphs.html')
+
+        init_code = """
+        <html>
+        <head>
+        <link href='http://fonts.googleapis.com/css?family=Roboto' rel='stylesheet' type='text/css'>
+        <link href="https://fonts.googleapis.com/css?family=Play&display=swap" rel="stylesheet">
+        <style>
+        img.rCorners {
+            border-radius: 30px;
+        }
+        body {
+            background-color: #050505
+        }
+        </style>       
+        </head>
+        <body>
+        """
+        with open(web_page, 'w') as wfile:
+            wfile.write(init_code)
+
+        figs_dir = join(os.getcwd(), 'figures')
+        figures = sorted(os.listdir(figs_dir))
+
+        for figure in figures:
+            figure = join(figs_dir, figure)
+
+            ext = splitext(figure)[1]
+            if ext == '.png':
+
+                figs_insert = """
+                <br>
+                <center>
+                    <img class="roundedCorners" src="FIG_NAME">
+                </center>   
+                """
+            else:
+                figs_insert = """
+                   <br>
+                   <center>
+                       <embed type="image/svg+xml" src="FIG_NAME"/>
+                   </center>   
+                   """
+
+            figs_insert = figs_insert.replace('FIG_NAME', figure)
+
+            with open(web_page, 'a') as wfile:
+                wfile.write(figs_insert)
+
+        close_code = """
+        </html>
+        """
+        with open(web_page, 'a') as wfile:
+            wfile.write(close_code)
+
     def plot_data(self, dfs, m_values, date):
         """
         Plot cases vs days since first diagnosted case
@@ -186,59 +251,61 @@ class COVID(object):
                 val += (val + n)*0.15
             l_pct.append(val)
 
-        cols = 3
-        rows = 1
-
-        fig = plt.figure(1, figsize=(20, 5))
+        fig = plt.figure(1, figsize=(20, 15))
         title = "Cases by country (%s) \n\n" % date
         max_cases = 0
-        for i in range(cols):
+        sp = 4
+        for i in range(sp):
 
-            ax = fig.add_subplot(rows, cols, i+1)
+            ax = fig.add_subplot(2, 2, i+1)
             ax = self.set_black_axis(ax)
             ax.set_xlabel("Days since first case")
 
             if i == 0:
                 ax.set_ylabel("New cases")
-            else:
+            elif i < 3:
                 ax.set_ylabel("Total cases")
+            else:
+                ax.set_ylabel("Deaths")
 
             for j, df in enumerate(dfs):
 
-                # print("DF:", df)
+                if i < 3:
+                    y_values = df['NewConfCases'].values
+                else:
+                    y_values = df['NewDeaths'].values
 
-                y_values = df['NewConfCases'].values
                 x_values = np.arange(len(y_values))
                 country = df['CountryExp'].values[0]
                 cases = np.max(np.cumsum(y_values))
                 if cases > max_cases:
                     max_cases = cases
 
-                alpha = 1 - (0.15 * j)
+                alpha = 1 # - (0.15 * j)
                 if i == 0:
                     ax.bar(x_values, y_values, alpha=alpha, label=country)
+                    title += country + ": " + str(max(np.cumsum(y_values))) + "\n"
                 elif i == 1:
                     ax.plot(x_values, np.cumsum(y_values), label=country) #, color="y")
-                    title += country + ": " + str(max(np.cumsum(y_values))) + "\n"
-                else:
+                elif i < 3:
                     if j == 0:
                         ax.plot(range(m_values), np.cumsum(l_pct), '--', label="FC% Increase", color="w")
 
                     ax.plot(x_values, np.cumsum(y_values), label=country) #, color="y")
-                    
-                    
-            legend = self.set_black_legend(ax)
+                else:
+                    ax.plot(x_values, np.cumsum(y_values), label=country) #, color="y")
+
+            self.set_black_legend(ax)
             
             ax.grid()
-            if i == 1:
+            if i == 0:
                 ax.set_title(title, color="white")
-            if i > 0:
+            if 0 < i < 3:
                 ax.set_ylim(1, max_cases)
             if i == 2:
                 ax.set_yscale('log')
                 ax.yaxis.set_major_formatter(StrMethodFormatter('{x:.0f}'))
                 ax.yaxis.set_minor_formatter(NullFormatter())
-
 
         # Create interactive plots
         self.create_gal_chart(dfs)
